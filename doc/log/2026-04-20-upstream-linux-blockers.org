@@ -1,0 +1,105 @@
+#+TITLE: Upstream blueprint Linux build blockers
+#+DATE: <2026-04-20>
+#+AUTHOR: claude (session notes)
+
+* Context
+
+Attempting to ~./build_linux.sh~ against a pristine clone of
+[[https://github.com/baldgg/blueprint][baldgg/blueprint]] with Odin ~dev-2025-12~ fails. Two independent
+upstream blockers. The blueprint README already warns: /"current
+version untested on Linux + Mac"/.
+
+* Blocker 1: FMOD bindings missing on Linux
+
+The Odin FMOD bindings in ~sauce/fmod/core/~ and ~sauce/fmod/studio/~
+are gated to Windows (~#+build windows~) or Darwin (~_darwin.odin~
+filename suffix). On Linux the ~fmod_core~ and ~fmod_studio~ packages
+are empty, and every call in ~core_sound.odin~ fails at compile time:
+
+#+BEGIN_EXAMPLE
+Error: 'SYSTEM' is not declared by 'fstudio'
+Error: Undeclared name: System_Create
+Error: 'fcore.RESULT' is not a type
+(~30 similar errors)
+#+END_EXAMPLE
+
+** Upstream tracking
+
+- Issue [[https://github.com/baldgg/blueprint/issues/7][#7 — /when is linux support coming/]] (open since 2025-11-20,
+  no replies).
+- PR [[https://github.com/baldgg/blueprint/pull/10][#10 — /linux fmod support added/]] (open since 2025-12-04, by
+  nihiL7331). Reworks the Odin FMOD bindings for Linux, updates
+  ~build.odin~ to copy Linux ~.so~ files, README notes. Maintainer
+  (~randyprime~) responded that merging needs care because the
+  existing bindings are customised for WASM. Not merged.
+
+** Scope to close on our side
+
+- Cherry-pick PR #10 /or/ write our own Linux FMOD stub gated behind
+  ~#+build linux~ (drafted once in-session; reverted — would take ~30
+  min to redo).
+
+* Blocker 2: sokol-shdc ↔ vendored sokol-odin version skew
+
+The bundled ~sokol-shdc-linux~ emits a ~generated_shader.odin~ that
+uses a newer Sokol API than the vendored Odin bindings in
+~sauce/sokol/~. Specifically, the generated code references:
+
+- ~Shader_Desc.views[i]~
+- ~Shader_Desc.texture_sampler_pairs[i]~
+- ~Shader_Vertex_Attr.base_type~
+
+None of those fields exist in the vendored ~Shader_Desc~ / ~Shader_Vertex_Attr~
+structs, which use the older ~images~ / ~samplers~ / ~image_sampler_pairs~
+shape. Compile fails with ~'desc' of type 'Shader_Desc' has no field 'views'~
+(and similar) plus ~Undeclared name: IMG_tex0 / IMG_font_tex / SMP_default_sampler / quad_shader_desc~.
+
+Also affects pristine blueprint. Reproduced against ~/tmp/blueprint-src~.
+
+** Upstream tracking
+
+- *Not filed yet.* No existing issue or PR on
+  [[https://github.com/baldgg/blueprint/issues?q=is%3Aissue+sokol][baldgg/blueprint]]
+  mentions shdc, shader, or version skew.
+
+** Scope to close on our side
+
+Two plausible paths:
+
+1. Downgrade ~sokol-shdc-linux~ to a version that emits code matching
+   the vendored bindings. Cheap if we can find the right version.
+2. Regenerate ~sauce/sokol/~ from upstream
+   [[https://github.com/floooh/sokol-odin][floooh/sokol-odin]] at a
+   commit matching the bundled shdc. Right long-term call, bigger
+   refactor — ~sauce/sokol/~ would be largely replaced.
+
+Either way, C shims must be rebuilt via ~sauce/sokol/build_clibs_linux.sh~
+(I confirmed that step works after installing ~libgl1-mesa-dev libx11-dev
+libxi-dev libxcursor-dev libasound2-dev~).
+
+* Orthogonal observation: ~core:os/os2~ removed
+
+Not Linux-specific, but discovered during the same investigation.
+Odin's latest release (~dev-2026-04~) merged ~core:os/os2~ into
+~core:os~. Blueprint still imports ~os/os2~ in ~sauce/build/build.odin~
+and ~sauce/utils/utils.odin~. A ~brew install odin~ would get the
+latest and fail with ~Syntax Error: Path does not exist: core:os/os2~.
+
+Mitigated in our repo by pinning Odin to ~dev-2025-12~ in
+~build_mac.sh~ (commit ~e41b6a6~). Not an upstream issue we need to
+file — it's a passive decay; upstream can migrate at their leisure.
+
+* Current decision
+
+Park Linux. The Mac-first path (pinned Odin + ~./build_mac.sh~) is
+unaffected. Revisit Linux after the v0.1 vertical slice, when we
+either pick up PR #10 or rebase ~sauce/sokol/~ on current upstream
+bindings.
+
+* Open follow-ups
+
+- [ ] Decide: file a new upstream issue about the sokol-shdc/binding
+  version skew? Would help the PR #10 author and anyone else trying
+  Linux.
+- [ ] Decide: cherry-pick PR #10 FMOD work or write our own stub when
+  we eventually need Linux audio.
