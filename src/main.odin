@@ -13,6 +13,9 @@ main :: proc() {
 	defer rl.CloseWindow()
 	rl.SetTargetFPS(60)
 
+	audio_init()
+	defer audio_shutdown()
+
 	game_init()
 
 	for !rl.WindowShouldClose() {

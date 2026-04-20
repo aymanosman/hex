@@ -1,8 +1,18 @@
 package main
 
+import "core:fmt"
 import "core:math"
 import "core:math/linalg"
 import rl "vendor:raylib"
+
+Damage_Popup :: struct {
+	pos:         rl.Vector2,
+	value:       int,
+	t_remaining: f32,
+}
+
+POPUP_LIFETIME :: 0.7
+POPUP_RISE     :: 24.0 // world units per second
 
 Game :: struct {
 	entities:  [MAX_ENTITIES]Entity,
@@ -11,7 +21,10 @@ Game :: struct {
 
 	player: Entity_Handle,
 
-	camera: rl.Camera2D,
+	camera:       rl.Camera2D,
+	shake_amount: f32,
+
+	popups: [dynamic]Damage_Popup,
 
 	gold:  int,
 	time:  f64,
@@ -58,8 +71,20 @@ camera_update :: proc(dt: f32) {
 	target := get_player().pos
 	t := 1 - math.pow(f32(2), f32(-CAMERA_FOLLOW_RATE) * dt)
 	game.camera.target = linalg.lerp(game.camera.target, target, t)
+
+	if game.shake_amount > 0 {
+		jx := (rand_f32() * 2 - 1) * game.shake_amount
+		jy := (rand_f32() * 2 - 1) * game.shake_amount
+		game.camera.target += {jx, jy}
+		game.shake_amount = max(0, game.shake_amount - dt * 30)
+	}
+
 	// keep offset centered even when the window resizes
 	game.camera.offset = {f32(rl.GetScreenWidth()) * 0.5, f32(rl.GetScreenHeight()) * 0.5}
+}
+
+rand_f32 :: proc() -> f32 {
+	return f32(rl.GetRandomValue(0, 10_000)) / 10_000.0
 }
 
 game_update :: proc(dt: f32) {
@@ -77,6 +102,15 @@ game_update :: proc(dt: f32) {
 			e.update_proc(e)
 		}
 
+		if e.knockback != {} {
+			e.pos += e.knockback * dt
+			e.knockback = linalg.lerp(e.knockback, rl.Vector2{}, min(1, dt * 12))
+			if linalg.length(e.knockback) < 1 do e.knockback = {}
+			if e.kind != .hitbox && e.kind != .loot {
+				resolve_wall_collisions(e)
+			}
+		}
+
 		if e.attack_cd > 0 do e.attack_cd = max(0, e.attack_cd - dt)
 		if e.hit_flash > 0 do e.hit_flash = max(0, e.hit_flash - dt * 4)
 
@@ -91,6 +125,7 @@ game_update :: proc(dt: f32) {
 
 	resolve_combat()
 	resolve_pickups()
+	update_popups(dt)
 
 	camera_update(dt)
 }
@@ -111,6 +146,16 @@ resolve_combat :: proc() {
 
 			target.hp -= hb.damage
 			target.hit_flash = 1
+
+			dir := target.pos - hb.pos
+			if linalg.length(dir) > 0.1 {
+				target.knockback += linalg.normalize(dir) * 320
+			}
+
+			game.shake_amount = max(game.shake_amount, 5)
+			spawn_popup(target.pos, hb.damage)
+			play(sfx.hit)
+
 			if target.hp <= 0 {
 				on_entity_killed(target)
 				entity_destroy(target)
@@ -126,6 +171,38 @@ on_entity_killed :: proc(e: ^Entity) {
 	}
 }
 
+spawn_popup :: proc(pos: rl.Vector2, value: int) {
+	// nudge the x a little so stacked hits don't overlap exactly
+	jitter_x := (rand_f32() * 2 - 1) * 8
+	append(&game.popups, Damage_Popup{
+		pos         = pos + {jitter_x, -12},
+		value       = value,
+		t_remaining = POPUP_LIFETIME,
+	})
+}
+
+update_popups :: proc(dt: f32) {
+	#reverse for &p, i in game.popups {
+		p.t_remaining -= dt
+		p.pos.y -= POPUP_RISE * dt
+		if p.t_remaining <= 0 {
+			unordered_remove(&game.popups, i)
+		}
+	}
+}
+
+draw_popups :: proc() {
+	for p in game.popups {
+		alpha := u8(rl.Clamp(p.t_remaining / POPUP_LIFETIME, 0, 1) * 255)
+		col := rl.Color{255, 230, 120, alpha}
+		txt := fmt.ctprintf("%d", p.value)
+		// DrawText takes i32 screen coords but BeginMode2D applies the
+		// camera transform first, so these "screen" coords are world
+		// units while inside the Begin/End block.
+		rl.DrawText(txt, i32(p.pos.x), i32(p.pos.y), 12, col)
+	}
+}
+
 // Pickup pass: player overlaps loot → grant gold, destroy loot.
 resolve_pickups :: proc() {
 	p := get_player()
@@ -137,6 +214,7 @@ resolve_pickups :: proc() {
 		if rl.CheckCollisionRecs(pr, entity_aabb(item)) {
 			game.gold += 1
 			entity_destroy(item)
+			play(sfx.pickup)
 		}
 	}
 }
@@ -150,6 +228,7 @@ game_draw :: proc() {
 			draw_entity_default(e)
 		}
 	}
+	draw_popups()
 }
 
 draw_entity_default :: proc(e: ^Entity) {
@@ -211,6 +290,7 @@ setup_player :: proc(e: ^Entity) {
 				aim := linalg.normalize(to_mouse)
 				spawn_player_hitbox(e.pos + aim * PLAYER_ATTACK_RANGE * 0.6)
 				e.attack_cd = PLAYER_ATTACK_CD
+				play(sfx.swing)
 			}
 		}
 	}

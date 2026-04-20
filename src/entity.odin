@@ -43,6 +43,9 @@ Entity :: struct {
 	// visual 0..1, decays over time
 	hit_flash: f32,
 
+	// applied as velocity over a few frames after getting hit
+	knockback: rl.Vector2,
+
 	// hitbox already applied damage this frame
 	did_damage: bool,
 
