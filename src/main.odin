@@ -1,6 +1,8 @@
 package main
 
 import "core:fmt"
+import "core:os"
+import "core:strings"
 
 import rl "vendor:raylib"
 
@@ -8,6 +10,26 @@ WINDOW_W :: 960
 WINDOW_H :: 540
 
 main :: proc() {
+	scene_name, out_path: string
+	out_path = "shot.png"
+	for arg in os.args[1:] {
+		if strings.has_prefix(arg, "--scene=") {
+			scene_name = arg[len("--scene="):]
+		} else if strings.has_prefix(arg, "--out=") {
+			out_path = arg[len("--out="):]
+		}
+	}
+
+	if scene_name != "" {
+		ok := render_scene(scene_name, out_path)
+		if !ok {
+			fmt.eprintfln("scene render failed: scene=%q out=%q", scene_name, out_path)
+			os.exit(1)
+		}
+		fmt.printfln("wrote %v", out_path)
+		return
+	}
+
 	rl.SetConfigFlags({.WINDOW_RESIZABLE, .VSYNC_HINT})
 	rl.InitWindow(WINDOW_W, WINDOW_H, "Hex")
 	defer rl.CloseWindow()
