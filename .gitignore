@@ -15,6 +15,11 @@ template-starter.rbg
 /sauce/generated_shader.odin
 atlas.png
 font.png
+# sokol per-platform C libs produced by sauce/sokol/build_clibs_*.sh
+# (Windows DLLs at sauce/sokol/sokol_dll_windows_* stay tracked.)
+/sauce/sokol/*/*.a
+/sauce/sokol/*/*.so
+/sauce/sokol/*/*.o
 
 # Asset workbench scratch
 /asset_workbench/fmod/.user
