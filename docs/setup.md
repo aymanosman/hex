@@ -24,11 +24,17 @@ blueprint author's README also flags the macOS path as "untested".
 
 ## Prerequisites (macOS)
 
-1. **Odin compiler.** `brew install odin`, or from
-   https://odin-lang.org/docs/install/. Must be on PATH.
-2. **Xcode Command Line Tools.** `xcode-select --install` — the sokol
+1. **Xcode Command Line Tools.** `xcode-select --install` — the sokol
    C shims are compiled from Objective-C via `cc`.
-3. **Git.** For the first-run bootstrap (see below).
+2. **Git + curl.** For the first-run bootstrap (see below). Both are
+   part of Command Line Tools.
+
+Odin is **not** a prerequisite — `build_mac.sh` downloads and pins a
+specific Odin release into `.cache/odin/`. We do this because the
+blueprint imports `core:os/os2`, which was merged into `core:os` in
+current Odin releases. A `brew install odin` would install the latest,
+which doesn't parse the blueprint code. The pinned version is set at
+the top of `build_mac.sh`; bump it when we port the os2 call sites.
 
 Mac FMOD dylibs are shipped as universal binaries (x86_64 + arm64 in
 the same file), so the build works on both Intel and Apple Silicon.
@@ -40,13 +46,17 @@ the same file), so the build works on both Intel and Apple Silicon.
 
 The script is the one-command entry point. On each run it:
 
-1. Checks that `odin` and `cc` are on PATH.
-2. **Bootstrap** (first run only): if `sauce/fmod/`, `res/fmod/`, or
-   `sokol-shdc-mac` is missing, shallow-clones the upstream blueprint
-   into `.cache/blueprint/` and copies the three pieces in. We don't
-   commit the FMOD SDK (licensing) or the ~40 MB sokol-shdc binaries.
-3. Builds the sokol C libraries once (`sauce/sokol/build_clibs_macos.sh`).
-4. Runs `odin run ./sauce/build -- target:mac`, which generates
+1. Checks that `cc` is on PATH.
+2. **Odin bootstrap** (first run only): downloads the pinned Odin
+   release into `.cache/odin/` and uses it for the remainder of the
+   build. Any system-installed `odin` is ignored.
+3. **SDK bootstrap** (first run only): if `sauce/fmod/`, `res/fmod/`,
+   or `sokol-shdc-mac` is missing, shallow-clones the upstream
+   blueprint into `.cache/blueprint/` and copies the three pieces in.
+   We don't commit the FMOD SDK (licensing) or the ~40 MB sokol-shdc
+   binaries.
+4. Builds the sokol C libraries once (`sauce/sokol/build_clibs_macos.sh`).
+5. Runs `odin run ./sauce/build -- target:mac`, which generates
    `sauce/generated.odin` + `sauce/generated_shader.odin`, compiles
    `sauce`, and copies FMOD dylibs into `build/mac_debug/`.
 
